@@ -1,2 +1,3 @@
-# gyPSum
-Set of Plaster templates for PowerShell authoring
+# PowerShell module template
+
+This is a Plaster template for creating community best-practice PowerShell modules.
