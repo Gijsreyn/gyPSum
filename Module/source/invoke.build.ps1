@@ -1,67 +1,60 @@
-#Requires -Modules @{ModuleName='InvokeBuild';ModuleVersion='3.2.1'}
-#Requires -Modules @{ModuleName='PowerShellGet';ModuleVersion='1.6.0'}
-#Requires -Modules @{ModuleName='Pester';ModuleVersion='4.1.1'}
-#Requires -Modules @{ModuleName='ModuleBuilder';ModuleVersion='1.0.0'}
+[CmdletBinding()]
+Param (
+    [Parameter(Mandatory = $true)]
+    [version]$Version
+)
 
-$Script:IsAppveyor = $null -ne $env:APPVEYOR
-$Script:ModuleName = Get-Item -Path $BuildRoot | Select-Object -ExpandProperty Name
-Get-Module -Name $ModuleName | Remove-Module -Force
+task Bootstrap {
+    Write-Build Yellow "Bootstrapping environment"
+    Get-PackageProvider -Name Nuget -ForceBootstrap | Out-Null
+    Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+    if (-not (Get-Module -Name PSDepend -ListAvailable)) {
+        Install-module -Name PSDepend -Repository PSGallery
+    }
+    Import-Module -Name PSDepend -Verbose:$false
+    Invoke-PSDepend -Path './requirements.psd1' -Install -Import -Force -WarningAction SilentlyContinue
+}
 
 task Clean {
+    Write-Build Yellow "Cleaning \bin directory"
     Remove-Item -Path ".\Bin" -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 task TestCode {
-    Write-Build Yellow "`n`n`nTesting dev code before build"
-    $TestResult = Invoke-Pester -Script "$PSScriptRoot\Test\Unit" -Tag Unit -Show 'Header','Summary' -PassThru
-    if($TestResult.FailedCount -gt 0) {throw 'Tests failed'}
-}
-
-task CompilePSM {
-    Write-Build Yellow "`n`n`nCompiling all code into single psm1"
-    try {
-        $BuildParams = @{}
-        if((Get-Command -ErrorAction stop -Name gitversion)) {
-            $GitVersion = gitversion | ConvertFrom-Json | Select-Object -Expand FullSemVer
-            $GitVersion = gitversion | ConvertFrom-Json | Select-Object -Expand InformationalVersion
-            $BuildParams['SemVer'] = $GitVersion
+    Write-Build Yellow "Testing Pester test(s)" 
+    $PesterConfiguration = [PesterConfiguration]@{
+        Run = @{
+            Path = "$BuildRoot\test\*tests.ps1"
+        }
+        Output = @{
+            Verbosity = 'Detailed'
+        }
+        Filter = @{
+            Tag = 'Unit'
+        }
+        Should = @{
+            ErrorAction = 'Stop'
+        }
+        TestResult = @{
+            Enabled = $true
+            OutputFormat = 'NUnitXml'
         }
     }
-    catch{
-        Write-Warning -Message 'gitversion not found, keeping current version'
-    }
-    Push-Location -Path "$BuildRoot\Source" -StackName 'InvokeBuildTask'
+
+    Invoke-Pester -Configuration $PesterConfiguration
+}
+
+task BuildModule {
+    $ModuleName = (Get-Item -Path $BuildRoot | Select-Object -ExpandProperty Name)
+    Write-Build Yellow "Building module: $ModuleName"
+    Write-Build Yellow "Version number: $Version"
+    $BuildParams = @{}
+    $BuildParams['Version'] = $Version
+    Push-Location -Path "$BuildRoot\src" -StackName 'InvokeBuildTask'
     $Script:CompileResult = Build-Module @BuildParams -Passthru
     Get-ChildItem -Path "$BuildRoot\license*" | Copy-Item -Destination $Script:CompileResult.ModuleBase
     Pop-Location -StackName 'InvokeBuildTask'
 }
 
-task MakeHelp -if (Test-Path -Path "$PSScriptRoot\Docs") {
-
-}
-
-task TestBuild {
-    Write-Build Yellow "`n`n`nTesting compiled module"
-    $Script =  @{Path="$PSScriptRoot\test\Unit"; Parameters=@{ModulePath=$Script:CompileResult.ModuleBase}}
-    $CodeCoverage = (Get-ChildItem -Path $Script:CompileResult.ModuleBase -Filter *.psm1).FullName
-    $TestResult = Invoke-Pester -Script $Script -CodeCoverage $CodeCoverage -Show None -PassThru
-
-    if($TestResult.FailedCount -gt 0) {
-        Write-Warning -Message "Failing Tests:"
-        $TestResult.TestResult.Where{$_.Result -eq 'Failed'} | ForEach-Object -Process {
-            Write-Warning -Message $_.Name
-            Write-Verbose -Message $_.FailureMessage -Verbose
-        }
-        throw 'Tests failed'
-    }
-
-    $CodeCoverageResult = $TestResult | Convert-CodeCoverage -SourceRoot "$PSScriptRoot\Source" -Relative
-    $CodeCoveragePercent = $TestResult.CodeCoverage.NumberOfCommandsExecuted/$TestResult.CodeCoverage.NumberOfCommandsAnalyzed*100 -as [int]
-    Write-Verbose -Message "CodeCoverage is $CodeCoveragePercent%" -Verbose
-    $CodeCoverageResult | Group-Object -Property SourceFile | Sort-Object -Property Count | Select-Object -Property Count, Name -Last 10
-}
-
-task . Clean, TestCode, Build
-
-task Build CompilePSM, MakeHelp, TestBuild
+task . Clean, BuildModule, TestCode
 
