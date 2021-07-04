@@ -4,17 +4,6 @@ Param (
     [version]$Version
 )
 
-task Bootstrap {
-    Write-Build Yellow "Bootstrapping environment"
-    Get-PackageProvider -Name Nuget -ForceBootstrap | Out-Null
-    Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-    if (-not (Get-Module -Name PSDepend -ListAvailable)) {
-        Install-module -Name PSDepend -Repository PSGallery
-    }
-    Import-Module -Name PSDepend -Verbose:$false
-    Invoke-PSDepend -Path './requirements.psd1' -Install -Import -Force -WarningAction SilentlyContinue
-}
-
 task Clean {
     Write-Build Yellow "Cleaning \bin directory"
     Remove-Item -Path ".\Bin" -Recurse -Force -ErrorAction SilentlyContinue

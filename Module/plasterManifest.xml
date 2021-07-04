@@ -37,6 +37,8 @@
     <file source='source/ScriptAnalyzerSettings.psd1' destination='${PLASTER_PARAM_ModuleName}/ScriptAnalyzerSettings.psd1'/>
      <!-- Script analyzer settings -->
     <file source='source/requirements.psd1' destination='${PLASTER_PARAM_ModuleName}/requirements.psd1'/>
+     <!-- Bootstrap file -->
+    <file source='source/bootstrap.ps1' destination='${PLASTER_PARAM_ModuleName}/bootstrap.ps1'/>
     <!-- .gitignore -->
     <file source='source/.gitignore' destination='${PLASTER_PARAM_ModuleName}/.gitignore' />
     <!-- Readme.md -->
