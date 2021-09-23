@@ -10,8 +10,8 @@ task Clean {
 }
 
 task TestCode {
-    Write-Build Yellow "Testing Pester test(s)" 
-    $PesterConfiguration = [PesterConfiguration]@{
+    Write-Build Yellow "Testing Pester test(s)"
+    $PesterConfiguration = New-PesterConfiguration -Hashtable @{
         Run = @{
             Path = "$BuildRoot\test\*tests.ps1"
         }
