@@ -29,10 +29,13 @@
     <newModuleManifest destination='${PLASTER_PARAM_ModuleName}/src/${PLASTER_PARAM_ModuleName}.psd1' moduleVersion='$PLASTER_PARAM_Version' rootModule='${PLASTER_PARAM_ModuleName}.psm1' author='${PLASTER_PARAM_FullName}' companyName='${PLASTER_PARAM_Company}' description='${PLASTER_PARAM_ModuleDescription}' encoding='UTF8-NoBOM'/>
     <!-- Build file for ModuleBuilder -->
     <templateFile source='source/build.psd1' destination='${PLASTER_PARAM_ModuleName}/src/build.psd1' />
+    <!-- Build file for ModuleBuilder -->
+    <templateFile source='source/script/Get-Function.ps1' destination='${PLASTER_PARAM_ModuleName}/src/Public/Get-Function.ps1' />
     <!-- Module file for DEV code -->
     <file source='source/Module.psm1' destination='${PLASTER_PARAM_ModuleName}/src/${PLASTER_PARAM_ModuleName}.psm1'/>
     <!-- Pester tests -->
     <file source='source/test/Manifest.tests.ps1' destination='${PLASTER_PARAM_ModuleName}/test/Manifest.tests.ps1' />
+    <file source='source/test/Help.tests.ps1' destination='${PLASTER_PARAM_ModuleName}/test/Help.tests.ps1' />
     <!-- Script analyzer settings -->
     <file source='source/ScriptAnalyzerSettings.psd1' destination='${PLASTER_PARAM_ModuleName}/ScriptAnalyzerSettings.psd1'/>
      <!-- Script analyzer settings -->
@@ -44,14 +47,16 @@
     <!-- Readme.md -->
     <file source='source/Readme.md' destination='${PLASTER_PARAM_ModuleName}/Readme.md' />
     <!-- InvokeBuild -->
-    <file source='source/invoke.build.ps1' destination='${PLASTER_PARAM_ModuleName}/${PLASTER_PARAM_ModuleName}.build.ps1' />
+    <templateFile source='source/invoke.build.ps1' destination='${PLASTER_PARAM_ModuleName}/${PLASTER_PARAM_ModuleName}.build.ps1' />
     <!-- Editor files -->
     <file source='source/editor/VSCode/settings.json' destination='${PLASTER_PARAM_ModuleName}/.vscode/settings.json' />
     <file source='source/editor/VSCode/launch.json' destination='${PLASTER_PARAM_ModuleName}/.vscode/launch.json' />
     <!-- License file -->
     <file source='source/license/MIT.txt' destination='${PLASTER_PARAM_ModuleName}/license.txt' />
+    <!-- Changelog file -->
+    <file source='source/changelog/CHANGELOG.md' destination='${PLASTER_PARAM_ModuleName}/CHANGELOG.md' />
     <!-- Summary messages -->
     <message>&#10;&#10;Your new PowerShell module project '$PLASTER_PARAM_ModuleName' has been created.&#10;&#10;</message>
-    <message>&#10;A Pester test has been created to validate the module's manifest file. Add additional tests to the test directory.</message>
+    <message>&#10;A Pester tests has been created to validate the module's manifest file and help content. Add additional tests to the test directory.</message>
   </content>
 </plasterManifest>

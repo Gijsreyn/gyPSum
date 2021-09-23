@@ -1,36 +1,49 @@
 [CmdletBinding()]
 Param (
-    [Parameter(Mandatory = $true)]
-    [version]$Version
+    [Parameter()]
+    [version]$Version,
+    [Parameter()]
+    [string]$DocsPath = "$BuildRoot\Docs"
 )
+
 
 task Clean {
     Write-Build Yellow "Cleaning \bin directory"
     Remove-Item -Path ".\Bin" -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-task TestCode {
-    Write-Build Yellow "Testing Pester test(s)"
-    $PesterConfiguration = New-PesterConfiguration -Hashtable @{
-        Run = @{
-            Path = "$BuildRoot\test\*tests.ps1"
-        }
-        Output = @{
-            Verbosity = 'Detailed'
-        }
-        Filter = @{
-            Tag = 'Unit'
-        }
-        Should = @{
-            ErrorAction = 'Stop'
-        }
-        TestResult = @{
-            Enabled = $true
-            OutputFormat = 'NUnitXml'
-        }
-    }
+task Version {
+    if (-not $Version) {
+        Write-Build Yellow "Getting version number from changelog"
+        ($Script:Version = switch -Regex -File 'CHANGELOG.md' {
+                '##\s+[[](\d+\.\d+\.\d+)[]]' {
+                    $Matches[1];
+                    break
+                }
+            })
 
-    Invoke-Pester -Configuration $PesterConfiguration
+        assert $Script:Version
+        Write-Build Yellow "Using build version from CHANGELOG.md: $Version"
+    }
+}
+
+task TestCode {
+    Write-Build Yellow "Executing Pester tests"
+    $CodeCoverage = (Get-ChildItem -Path $Script:CompileResult.ModuleBase -Filter *.psm1).FullName
+    $Configuration = New-PesterConfiguration
+    $Configuration.Run.Path = "Test\*.tests.ps1"
+    $Configuration.Output.Verbosity = 'Detailed'
+    $Configuration.Filter.Tag = 'Unit'
+    $Configuration.Should.ErrorAction = 'Stop'
+    $Configuration.TestResult.Enabled = $true
+    $Configuration.TestResult.OutputFormat = 'NunitXml'
+    $Configuration.CodeCoverage.Enabled = $true
+    $Configuration.CodeCoverage.Path = $CodeCoverage
+    $Configuration.CodeCoverage.OutputFormat = 'JaCoCo'
+    $TestResult = Invoke-Pester -Configuration $Configuration
+    if ($TestResult.FailedCount -gt 0) {
+        Throw "One or more Pester tests failed."
+    }
 }
 
 task BuildModule {
@@ -45,5 +58,81 @@ task BuildModule {
     Pop-Location -StackName 'InvokeBuildTask'
 }
 
-task . Clean, BuildModule, TestCode
+task BuildPackage {
+    if (-not (Get-Command -Name NuGet -ErrorAction SilentlyContinue)) {
+        Write-Build Yellow "Installing Nuget in tools directory"
+        $Source = "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe"
+        $Target = "$BuildRoot\tools\nuget.exe"
+        # Extra for tls
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest $Source -OutFile (New-Item -Path $Target -Force)
+        Set-Alias nuget $Target -Scope Global -Verbose
+    }
+
+    Write-Build Yellow "Creating manifest file"
+    $Manifest = @"
+<?xml version="1.0"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
+    <metadata>
+        <id>MyModule</id>
+        <version>$Version</version>
+        <authors>Gijs Reijn</authors>
+        <description>MyModule module</description>
+        <tags>Powershell</tags>
+    </metadata>
+</package>
+"@
+    Set-Content "$($Script:CompileResult.ModuleBase)\Package.nuspec" -Value $Manifest
+
+    Write-Build Yellow "Pushing location to: $($Script:CompileResult.ModuleBase)"
+    Push-Location -Path $Script:CompileResult.ModuleBase -StackName 'InvokePackageTask'
+
+    # Package
+    Write-Build Yellow "Building package in directory: $($Script:CompileResult.ModuleBase)\Package"
+    exec {
+        nuget pack Package.nuspec -NoDefaultExcludes -NoPackageAnalysis -OutputDirectory 'Package'
+    }
+    Pop-Location -StackName 'InvokePackageTask'
+}
+
+task MakeHelp {
+
+    $ModuleInfo = Import-Module "$($Script:CompileResult.ModuleBase)/*.psd1" -Global -Force -PassThru
+
+    try {
+        if ($ModuleInfo.ExportedCommands.Count -eq 0) {
+            Write-Warning 'No commands have been exported. Skipping markdown generation.'
+            return
+        }
+
+        if (-not (Test-Path -LiteralPath $Script:DocsPath)) {
+            New-Item -Path $Script:DocsPath -ItemType Directory | Out-Null
+        }
+
+        if (Get-ChildItem $DocsPath -Filter *.md -Recurse) {
+            Get-ChildItem $DocsPath -Directory | ForEach-Object {
+                Update-MarkdownHelp -Path $_.FullName > $null
+            }
+        }
+
+        # ErrorAction set to SilentlyContinue so this command will not overwrite an existing MD file.
+        $Locale = 'en-us'
+        $NewMDParams = @{
+            Module       = $ModuleInfo.Name
+            Locale       = $Locale
+            OutputFolder = [IO.Path]::Combine($DocsPath, $Locale)
+            ErrorAction  = 'SilentlyContinue'
+            Verbose      = $false
+        }
+        New-MarkdownHelp @newMDParams > $null
+
+        # Copy it to the source directory
+        Copy-Item -Path ([IO.Path]::Combine($DocsPath, $Locale)) -Destination $Script:CompileResult.ModuleBase -Recurse
+    } finally {
+        Remove-Module $ModuleInfo.Name
+    }
+}
+
+task . Clean, Version, BuildModule, TestCode, MakeHelp, BuildPackage
+
 
