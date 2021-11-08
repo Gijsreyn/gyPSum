@@ -10,6 +10,8 @@ Param (
 task Clean {
     Write-Build Yellow "Cleaning \bin directory"
     Remove-Item -Path ".\Bin" -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Build Yellow "Cleaning \Docs directory"
+    Remove-Item -Path ".\Docs" -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 task Version {
@@ -29,7 +31,7 @@ task Version {
 
 task TestCode {
     Write-Build Yellow "Executing Pester tests"
-    $CodeCoverage = (Get-ChildItem -Path $Script:CompileResult.ModuleBase -Filter *.psm1).FullName
+    $CodeCoverage = 'src\Public', 'src\Private'
     $Configuration = New-PesterConfiguration
     $Configuration.Run.Path = "Test\*.tests.ps1"
     $Configuration.Output.Verbosity = 'Detailed'

@@ -1,86 +1,121 @@
-BeforeAll {
-    $ModuleName = (Get-Item "$PSScriptRoot\..\bin\*").Name
+# Taken with love from @devblackops (https://github.com/psake/PowerShellBuild)
+
+BeforeDiscovery {
+    function global:FilterOutCommonParams {
+        param ($Params)
+        $commonParams = @(
+            'Debug', 'ErrorAction', 'ErrorVariable', 'InformationAction', 'InformationVariable',
+            'OutBuffer', 'OutVariable', 'PipelineVariable', 'Verbose', 'WarningAction',
+            'WarningVariable', 'Confirm', 'Whatif'
+        )
+        $params | Where-Object { $_.Name -notin $commonParams } | Sort-Object -Property Name -Unique
+    }
+
+    $ModulePath = "$PSScriptRoot\..\src\"
+    # Remove trailing slash or backslash
+    $ModulePath = $ModulePath -replace '[\\/]*$'
+    $ModuleName = (Get-Item "$ModulePath\..").Name
+    $ModuleManifestName = $ModuleName + '.psd1'
+    $ModuleManifestPath = Join-Path -Path $ModulePath -ChildPath $ModuleManifestName
+
+    # Get module commands
+    # Remove all versions of the module from the session. Pester can't handle multiple versions.
+    Get-Module $ModuleName | Remove-Module -Force -ErrorAction Ignore
+    Import-Module -Name $ModuleManifestPath -Verbose:$false -ErrorAction Stop
+    $params = @{
+        Module      = (Get-Module $ModuleName)
+        CommandType = [System.Management.Automation.CommandTypes[]]'Cmdlet, Function' # Not alias
+    }
+    if ($PSVersionTable.PSVersion.Major -lt 6) {
+        $params.CommandType[0] += 'Workflow'
+    }
+    $commands = Get-Command @params
+
+    ## When testing help, remember that help is cached at the beginning of each session.
+    ## To test, restart session.
 }
 
-Describe "$ModuleName Sanity Tests - Help Content" -Tags 'Unit' {
+AfterAll {
+    Remove-Item Function:/FilterOutCommonParams
+}
 
-    #region Discovery
+Describe "Test help for <_.Name>" -Tag "Unit" -ForEach $commands {
 
-    # The module will need to be imported during Discovery since we're using it to generate test cases / Context blocks
-    $ModuleName = (Get-Item "$PSScriptRoot\..\bin\*").Name
-    $ModulePath = "$PSScriptRoot\..\bin\$ModuleName\$ModuleName.psd1"
-    Import-Module $ModulePath
+    BeforeDiscovery {
+        # Get command help, parameters, and links
+        $command = $_
+        $commandHelp = Get-Help $command.Name -ErrorAction SilentlyContinue
+        $commandParameters = global:FilterOutCommonParams -Params $command.ParameterSets.Parameters
+        $commandParameterNames = $commandParameters.Name
+        $helpLinks = $commandHelp.relatedLinks.navigationLink.uri
+    }
 
-    $ShouldProcessParameters = 'WhatIf', 'Confirm'
+    BeforeAll {
+        # These vars are needed in both discovery and test phases so we need to duplicate them here
+        $command = $_
+        $commandName = $_.Name
+        $commandHelp = Get-Help $command.Name -ErrorAction SilentlyContinue
+        $commandParameters = global:FilterOutCommonParams -Params $command.ParameterSets.Parameters
+        $commandParameterNames = $commandParameters.Name
+        $helpParameters = global:FilterOutCommonParams -Params $commandHelp.Parameters.Parameter
+        $helpParameterNames = $helpParameters.Name
+    }
 
-    # Generate command list for generating Context / TestCases
-    $Module = Get-Module $ModuleName
-    $CommandList = @(
-        $Module.ExportedFunctions.Keys
-        $Module.ExportedCmdlets.Keys
-    )
+    # If help is not found, synopsis in auto-generated help is the syntax diagram
+    It 'Help is not auto-generated' {
+        $commandHelp.Synopsis | Should -Not -BeLike '*`[`<CommonParameters`>`]*'
+    }
 
-    #endregion Discovery
+    # Should be a description for every function
+    It "Has description" {
+        $commandHelp.Description | Should -Not -BeNullOrEmpty
+    }
 
-    foreach ($Command in $CommandList) {
-        Context "$Command - Help Content" {
+    # Should be at least one example
+    It "Has example code" {
+        ($commandHelp.Examples.Example | Select-Object -First 1).Code | Should -Not -BeNullOrEmpty
+    }
 
-            #region Discovery
+    # Should be at least one example description
+    It "Has example help" {
+        ($commandHelp.Examples.Example.Remarks | Select-Object -First 1).Text | Should -Not -BeNullOrEmpty
+    }
 
-            $Help = @{ Help = Get-Help -Name $Command -Full | Select-Object -Property * }
-            $Parameters = Get-Help -Name $Command -Parameter * -ErrorAction Ignore |
-            Where-Object { $_.Name -and $_.Name -notin $ShouldProcessParameters } |
-            ForEach-Object {
-                @{
-                    Name        = $_.name
-                    Description = $_.Description.Text
-                }
-            }
-            $Ast = @{
-                # Ast will be $null if the command is a compiled cmdlet
-                Ast        = (Get-Content -Path "function:/$Command" -ErrorAction Ignore).Ast
-                Parameters = $Parameters
-            }
-            $Examples = $Help.Help.Examples.Example | ForEach-Object { @{ Example = $_ } }
+    It "Help link <_> is valid" -ForEach $helpLinks {
+        (Invoke-WebRequest -Uri $_ -UseBasicParsing).StatusCode | Should -Be '200'
+    }
 
-            #endregion Discovery
+    Context "Parameter <_.Name>" -Foreach $commandParameters {
 
-            It "has help content for $Command" -TestCases $Help {
-                $Help | Should -Not -BeNullOrEmpty
-            }
+        BeforeAll {
+            $parameter = $_
+            $parameterName = $parameter.Name
+            $parameterHelp = $commandHelp.parameters.parameter | Where-Object Name -eq $parameterName
+            $parameterHelpType = if ($parameterHelp.ParameterValue) { $parameterHelp.ParameterValue.Trim() }
+        }
 
-            It "contains a synopsis for $Command" -TestCases $Help {
-                $Help.Synopsis | Should -Not -BeNullOrEmpty
-            }
+        # Should be a description for every parameter
+        It "Has description" {
+            $parameterHelp.Description.Text | Should -Not -BeNullOrEmpty
+        }
 
-            It "contains a description for $Command" -TestCases $Help {
-                $Help.Description | Should -Not -BeNullOrEmpty
-            }
+        # Required value in Help should match IsMandatory property of parameter
+        It "Has correct [mandatory] value" {
+            $codeMandatory = $_.IsMandatory.toString()
+            $parameterHelp.Required | Should -Be $codeMandatory
+        }
 
-            It "lists the function author in the Notes section for $Command" -TestCases $Help {
-                $Notes = $Help.AlertSet.Alert.Text -split '\n'
-                $Notes[0].Trim() | Should -BeLike "Author: *"
-            }
-
-            # This will be skipped for compiled commands ($Ast.Ast will be $null)
-            It "has a help entry for all parameters of $Command" -TestCases $Ast -Skip:(-not ($Parameters -and $Ast.Ast)) {
-                @($Parameters).Count | Should -Be $Ast.Body.ParamBlock.Parameters.Count -Because 'the number of parameters in the help should match the number in the function script'
-            }
-
-            It "has a description for $Command parameter -<Name>" -TestCases $Parameters -Skip:(-not $Parameters) {
-                $Description | Should -Not -BeNullOrEmpty -Because "parameter $Name should have a description"
-            }
-
-            It "has at least one usage example for $Command" -TestCases $Help {
-                $Help.Examples.Example.Code.Count | Should -BeGreaterOrEqual 1
-            }
-
-            It "lists a description for $Command example: <Title>" -TestCases $Examples {
-                $Example.Remarks | Should -Not -BeNullOrEmpty -Because "example $($Example.Title) should have a description!"
-            }
+        # Parameter type in help should match code
+        It "Has correct parameter type" {
+            $parameterHelpType | Should -Be $parameter.ParameterType.Name
         }
     }
-}
-AfterAll {
-    Get-Module -Name $ModuleName | Remove-Module -Force
+
+    Context "Test <_> help parameter help for <commandName>" -Foreach $helpParameterNames {
+
+        # Shouldn't find extra parameters in help.
+        It "finds help parameter in code: <_>" {
+            $_ -in $parameterNames | Should -Be $true
+        }
+    }
 }

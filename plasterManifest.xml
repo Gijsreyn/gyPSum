@@ -36,6 +36,8 @@
     <!-- Pester tests -->
     <file source='source/test/Manifest.tests.ps1' destination='${PLASTER_PARAM_ModuleName}/test/Manifest.tests.ps1' />
     <file source='source/test/Help.tests.ps1' destination='${PLASTER_PARAM_ModuleName}/test/Help.tests.ps1' />
+    <file source='source/test/Function.tests.ps1' destination='${PLASTER_PARAM_ModuleName}/test/Function.tests.ps1' />
+    <file source='source/test/PSScriptAnalyzer.tests.ps1' destination='${PLASTER_PARAM_ModuleName}/test/PSScriptAnalyzer.tests.ps1' />
     <!-- Script analyzer settings -->
     <file source='source/ScriptAnalyzerSettings.psd1' destination='${PLASTER_PARAM_ModuleName}/ScriptAnalyzerSettings.psd1'/>
      <!-- Script analyzer settings -->
