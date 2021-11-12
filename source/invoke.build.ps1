@@ -3,7 +3,11 @@ Param (
     [Parameter()]
     [version]$Version,
     [Parameter()]
-    [string]$DocsPath = "$BuildRoot\Docs"
+    [string]$DocsPath = "$BuildRoot\Docs",
+    [Parameter()]
+    [string]$IsAzDo = $env:TF_Build,
+    [Parameter()]
+    [string]$ModuleName = "<%=$PLASTER_PARAM_ModuleName%>"
 )
 
 
@@ -33,7 +37,8 @@ task TestCode {
     Write-Build Yellow "Executing Pester tests"
     $CodeCoverage = 'src\Public', 'src\Private'
     $Configuration = New-PesterConfiguration
-    $Configuration.Run.Path = "Test\*.tests.ps1"
+    $Container = New-PesterContainer -Path "Test\*.tests.ps1" -Data @{ ModuleName = $ModuleName }
+    $Configuration.Run.Container = $Container
     $Configuration.Output.Verbosity = 'Detailed'
     $Configuration.Filter.Tag = 'Unit'
     $Configuration.Should.ErrorAction = 'Stop'
@@ -76,10 +81,10 @@ task BuildPackage {
 <?xml version="1.0"?>
 <package xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
     <metadata>
-        <id>MyModule</id>
+        <id><%=$PLASTER_PARAM_ModuleName%></id>
         <version>$Version</version>
-        <authors>Gijs Reijn</authors>
-        <description>MyModule module</description>
+        <authors><%=$PLASTER_PARAM_FullName%></authors>
+        <description><%=$PLASTER_PARAM_ModuleDescription%></description>
         <tags>Powershell</tags>
     </metadata>
 </package>
@@ -95,6 +100,13 @@ task BuildPackage {
         nuget pack Package.nuspec -NoDefaultExcludes -NoPackageAnalysis -OutputDirectory 'Package'
     }
     Pop-Location -StackName 'InvokePackageTask'
+
+    # Set the output directory for Azure DevOps builds and set the version
+    if ($IsAzDo) {
+        Write-Build Yellow "Setting variables for AzDo"
+        Write-Host "##vso[task.setvariable variable=BuildPackageDirectory]$($Script:CompileResult.ModuleBase)\Package"
+        Write-Host "##vso[build.updatebuildnumber]$Version"
+    }
 }
 
 task MakeHelp {
@@ -135,6 +147,10 @@ task MakeHelp {
     }
 }
 
-task . Clean, Version, BuildModule, TestCode, MakeHelp, BuildPackage
+task . Clean, Version, BuildModule, TestCode, MakeHelp
+
+task Build Clean, Version, BuildModule, BuildPackage
+
+task Test Clean, Version, BuildModule, TestCode
 
 

@@ -1,12 +1,12 @@
 @{
-    PSDependOptions = @{
+    PSDependOptions  = @{
         Target = 'CurrentUser'
     }
 
-    ModuleBuilder     = '2.0.0'
+    ModuleBuilder    = '2.0.0'
     Pester           = @{
-        MinimumVersion = '5.2.2'
-        Parameters = @{
+        MinimumVersion = '5.3.0'
+        Parameters     = @{
             SkipPublisherCheck = $true
         }
     }

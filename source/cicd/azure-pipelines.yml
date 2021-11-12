@@ -1,0 +1,67 @@
+stages:
+
+  - stage: Build
+    jobs:
+
+      - job: Build
+        pool: windows-latest
+        steps:
+          - task: PowerShell@2
+            displayName: 'Build and package module'
+            inputs:
+              targetType: 'inline'
+              script: |
+                # Install all the dependencies
+                .\bootstrap.ps1 -Bootstrap
+
+                # Build and package module
+                Invoke-Build -Task Build
+              workingDirectory: $(System.DefaultWorkingDirectory)
+
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish module artifact'
+            inputs:
+              artifactName: module
+              targetPath: $(BuildPackageDirectory)
+
+  - stage: Test
+    jobs:
+
+      - job: Test
+        pool: windows-latest
+        steps:
+          - task: PowerShell@2
+            displayName: 'Test module with Pester'
+            inputs:
+              targetType: 'inline'
+              script: |
+                # Install all the dependencies
+                .\bootstrap.ps1 -Bootstrap
+
+                # Build and package module
+                Invoke-Build -Task Test
+              workingDirectory: $(System.DefaultWorkingDirectory)
+              errorActionPreference: 'silentlyContinue'
+
+  - stage: Release
+    condition: and(succeeded(), contains(variables['Build.SourceBranch'], 'refs/heads/main'))
+
+    jobs:
+
+      - job: Release
+        pool: windows-latest
+        steps:
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish module artifact'
+            inputs:
+              artifactName: module
+              targetPath: $(Pipeline.Workspace)
+
+          - task: NuGetCommand@2
+            displayName: "Push to feed"
+            inputs:
+              command: "push"
+              packagesToPush: $(Pipeline.Workspace)/*.nupkg
+              nuGetFeedType: "internal"
+              publishVstsFeed:
+              allowPackageConflicts: true
